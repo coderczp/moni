@@ -2,12 +2,14 @@ package org.virtualdb.mpp;
 
 import java.io.File;
 import java.util.Iterator;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.io.RandomAccessFile;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel.MapMode;
+
+import org.virtualdb.mpp.MemMapUtil;
+import org.virtualdb.mpp.MemMapLongArray;
 
 /**
  * 基于内存映射的自动增长byteArray<br/>
@@ -18,27 +20,28 @@ import java.nio.channels.FileChannel.MapMode;
  *
  */
 
-public class MemMapByteArray implements Iterable<byte[]> {
+public class MemMapBytesArray implements Iterable<byte[]> {
 
 	private int size;
 	private int curIndex;
-	private int bufsIndex;
 	private int bufsSize;
+	private int bufsIndex;
 	private ThisItor itor;
 	private boolean isClose;
+	private File swapFilePath;
 	private LinkedList<File> files;
-	private MemMapLongArray offsets;
+	private HeapLongArray offsets;
 	private MappedByteBuffer curBuf;
 	private ArrayList<MappedByteBuffer> bufs;
 	private LinkedList<RandomAccessFile> foss;
-	private static final int INIT_SIZE = 150 * 1024 * 1024;
+	private static final int INIT_SIZE = Integer.MAX_VALUE;
 
-	public MemMapByteArray() {
+	public MemMapBytesArray(String swapPath) {
 		itor = new ThisItor();
 		files = new LinkedList<File>();
-		offsets = new MemMapLongArray();
 		bufs = new ArrayList<MappedByteBuffer>();
 		foss = new LinkedList<RandomAccessFile>();
+		createOffsetAndSwapPath(swapPath);
 		createBuffer();
 	}
 
@@ -51,8 +54,9 @@ public class MemMapByteArray implements Iterable<byte[]> {
 		MappedByteBuffer buf = bufs.get(pageIndex);
 		int curPos = buf.position();
 		buf.position(dataPosOffset);
-		int dataLen = buf.getInt();
-		byte[] data = new byte[dataLen];
+		short dataLen = buf.getShort();
+		int len = (dataLen << 16) >>> 16;
+		byte[] data = new byte[len];
 		buf.get(data);
 		buf.position(curPos);
 		return data;
@@ -67,8 +71,7 @@ public class MemMapByteArray implements Iterable<byte[]> {
 	 */
 	public synchronized void swap(int k, int j) {
 		if (k != j) {
-			MemMapUtil.checkRangeState(k, size, isClose);
-			MemMapUtil.checkRangeState(j, size, isClose);
+			MemMapUtil.checkRangeState(k, j, size, isClose);
 			long kPos = offsets.get(k);
 			long jPos = offsets.get(j);
 			offsets.set(k, jPos);
@@ -78,22 +81,25 @@ public class MemMapByteArray implements Iterable<byte[]> {
 	}
 
 	/**
-	 * 添加数据
+	 * 添加数据,如果数据长度大于65535,数据将被截断
 	 * 
 	 * @param data
 	 * @return
 	 */
 	public synchronized boolean add(byte[] data) {
-		int curBufRemainSize = curBuf.capacity() - curBuf.position();
-		if (curBufRemainSize >= data.length + 4) {
-			offsets.add(pageAndLenEncode(bufsSize - 1, curBuf.position()));
-			curBuf.putInt(data.length);
+		int len = data.length;
+		if (len > 65535)
+			throw new RuntimeException("length must be less than 65535");
+		int pos = curBuf.position();
+		int curBufRemainSize = curBuf.capacity() - pos;
+		if (curBufRemainSize >= len + 2) {
+			offsets.add(pageAndLenEncode(bufsSize - 1, pos));
+			curBuf.putShort((short) len);
 			curBuf.put(data);
 		} else {
-			// 当前buffer空间不足以存放data,扩容后放到下一个buffer
 			createBuffer();
-			offsets.add(pageAndLenEncode(bufsSize - 1, curBuf.position()));
-			curBuf.putInt(data.length);
+			offsets.add(pageAndLenEncode(bufsSize - 1, 0));
+			curBuf.putShort((short) len);
 			curBuf.put(data);
 		}
 		size++;
@@ -101,17 +107,17 @@ public class MemMapByteArray implements Iterable<byte[]> {
 	}
 
 	/**
+	 * 编码长度和位置
 	 * 
 	 * @param page
 	 * @param len
 	 * @return
 	 */
-	private static long pageAndLenEncode(int page, int len) {
-		ByteBuffer buf = ByteBuffer.allocate(8);
-		buf.putInt(page);
-		buf.putInt(len);
-		buf.flip();
-		return buf.getLong();
+	private final static long pageAndLenEncode(int page, int len) {
+		long codeLen = len;
+		codeLen <<= 32;
+		codeLen |= page;
+		return codeLen;
 	}
 
 	/**
@@ -120,10 +126,10 @@ public class MemMapByteArray implements Iterable<byte[]> {
 	 * @param len
 	 * @return
 	 */
-	private static int[] pageAndLenDecode(long len) {
-		ByteBuffer buf = ByteBuffer.allocate(8).putLong(len);
-		buf.flip();
-		return new int[] { buf.getInt(), buf.getInt() };
+	private final static int[] pageAndLenDecode(long len) {
+		int page = (int) len;
+		int realLen = (int) (len >> 32);
+		return new int[] { page, realLen };
 	}
 
 	/**
@@ -156,7 +162,7 @@ public class MemMapByteArray implements Iterable<byte[]> {
 		files.clear();
 	}
 
-	@Override
+	// @Override
 	public synchronized Iterator<byte[]> iterator() {
 		curIndex = 0;
 		curBuf = bufs.get(bufsIndex++);
@@ -164,35 +170,48 @@ public class MemMapByteArray implements Iterable<byte[]> {
 		return itor;
 	}
 
+	private void createOffsetAndSwapPath(String swapPath) {
+		swapFilePath = new File(swapPath);
+		if (!swapFilePath.exists())
+			swapFilePath.mkdirs();
+		offsets = new HeapLongArray(swapPath);
+	}
+
 	private void createBuffer() {
-		File tempFile = null;
+		File file = null;
 		RandomAccessFile mapFos = null;
 		try {
-			tempFile = File.createTempFile("map-arr-", ".dat");
-			mapFos = new RandomAccessFile(tempFile, "rw");
+			file = File.createTempFile("mapb-", ".dat", swapFilePath);
+			mapFos = new RandomAccessFile(file, "rw");
 			curBuf = mapFos.getChannel().map(MapMode.READ_WRITE, 0, INIT_SIZE);
 			foss.add(mapFos);
 			bufs.add(curBuf);
-			files.add(tempFile);
+			files.add(file);
 			bufsSize++;
 		} catch (Exception e) {
 			MemMapUtil.close(mapFos);
-			if (tempFile != null)
-				tempFile.delete();
+			if (file != null)
+				file.delete();
+			if (offsets != null)
+				offsets.release();
 			throw new RuntimeException(e);
 		}
 	}
 
 	private class ThisItor implements Iterator<byte[]> {
 
-		@Override
+		// @Override
 		public synchronized boolean hasNext() {
 			return curIndex < size;
 		}
 
-		@Override
+		// @Override
 		public synchronized byte[] next() {
 			return get(curIndex++);
+		}
+
+		public void remove() {
+			throw new RuntimeException("not supported");
 		}
 	}
 

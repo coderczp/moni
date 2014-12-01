@@ -20,28 +20,28 @@ public class MemMapLongArray {
 
 	private int size;
 	private boolean isClose;
+	private File swapFilePath;
 	private MappedByteBuffer curBuf;
 	private LinkedList<File> mapFiles;
 	private ArrayList<MappedByteBuffer> bufs;
 	private LinkedList<RandomAccessFile> foss;
 
 	/**
-	 * 每次扩容的大小,必须是long字节数的倍数以及2的x次方
+	 * 每次扩容的大小,必须是long字节数的倍数
 	 */
-	private static final int INIT_SIZE = 8 * 16 * 1024 * 1024;
+	private static final int INIT_SIZE = Integer.MAX_VALUE;
 
-	// private static final int MOD_NUM = 3 + 4 + 10 + 10;
-
-	public MemMapLongArray() {
+	public MemMapLongArray(String swapPath) {
 		mapFiles = new LinkedList<File>();
 		bufs = new ArrayList<MappedByteBuffer>();
 		foss = new LinkedList<RandomAccessFile>();
+		createSwapPath(swapPath);
 		createBuffer();
 	}
 
 	public synchronized boolean add(long data) {
 		int dataLen = 8;
-		if (curBuf.capacity() - curBuf.position() == dataLen) {
+		if (curBuf.capacity() == dataLen + curBuf.position()) {
 			curBuf.putLong(data);
 			createBuffer();
 		} else {
@@ -96,20 +96,26 @@ public class MemMapLongArray {
 		mapFiles.clear();
 	}
 
+	private void createSwapPath(String swapPath) {
+		swapFilePath = new File(swapPath);
+		if (!swapFilePath.exists())
+			swapFilePath.mkdirs();
+	}
+
 	private void createBuffer() {
-		File tempFile = null;
+		File file = null;
 		RandomAccessFile mapFos = null;
 		try {
-			tempFile = File.createTempFile("map-long-index-", ".dat");
-			mapFos = new RandomAccessFile(tempFile, "rw");
+			file = File.createTempFile("mapl-", ".dat", swapFilePath);
+			mapFos = new RandomAccessFile(file, "rw");
 			curBuf = mapFos.getChannel().map(MapMode.READ_WRITE, 0, INIT_SIZE);
 			foss.add(mapFos);
 			bufs.add(curBuf);
-			mapFiles.add(tempFile);
+			mapFiles.add(file);
 		} catch (Exception e) {
 			MemMapUtil.close(mapFos);
-			if (tempFile != null)
-				tempFile.delete();
+			if (file != null)
+				file.delete();
 			throw new RuntimeException(e);
 		}
 	}
