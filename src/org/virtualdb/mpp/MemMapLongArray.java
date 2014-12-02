@@ -29,7 +29,7 @@ public class MemMapLongArray {
 	/**
 	 * 每次扩容的大小,必须是long字节数的倍数
 	 */
-	private static final int INIT_SIZE = Integer.MAX_VALUE;
+	private static final int INIT_SIZE = 8 * 30 * 1024 * 1024;
 
 	public MemMapLongArray(String swapPath) {
 		mapFiles = new LinkedList<File>();
@@ -40,11 +40,15 @@ public class MemMapLongArray {
 	}
 
 	public synchronized boolean add(long data) {
-		int dataLen = 8;
-		if (curBuf.capacity() == dataLen + curBuf.position()) {
+		int capacity = curBuf.capacity();
+		int remain = 8 + curBuf.position();
+		if (capacity == remain) {
 			curBuf.putLong(data);
 			createBuffer();
-		} else {
+		} else if (capacity < remain) {
+			createBuffer();
+			curBuf.putLong(data);
+		} else if (capacity > remain) {
 			curBuf.putLong(data);
 		}
 		size++;
@@ -80,6 +84,7 @@ public class MemMapLongArray {
 	}
 
 	public synchronized void release() {
+		isClose = true;
 		for (RandomAccessFile fos : foss) {
 			MemMapUtil.close(fos);
 		}
@@ -90,7 +95,6 @@ public class MemMapLongArray {
 			if (!f.delete())
 				System.out.println("release mapbuf fail");
 		}
-		isClose = true;
 		foss.clear();
 		bufs.clear();
 		mapFiles.clear();
