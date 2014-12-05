@@ -1,17 +1,19 @@
 package org.virtualdb.mpp.test;
 
-import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.BufferedWriter;
 import java.util.concurrent.CountDownLatch;
 
-import org.virtualdb.mpp.MemMapBytesItor;
+import junit.framework.TestCase;
+
+import org.virtualdb.mpp.BytesArray;
+import org.virtualdb.mpp.BytesArray.CallBack;
 import org.virtualdb.mpp.MemMapSorter;
+import org.virtualdb.mpp.MemMapBytesItor;
 import org.virtualdb.mpp.MemMapLongArray;
 import org.virtualdb.mpp.MemMapBytesArray;
-import org.virtualdb.mpp.test.DataGenertor.CallBack;
-
-import junit.framework.TestCase;
+import org.virtualdb.mpp.test.DataGenertor.ReadCallBack;
 
 public class MemMapTest extends TestCase {
 
@@ -27,6 +29,41 @@ public class MemMapTest extends TestCase {
 			}
 			double time = (System.currentTimeMillis() - st) / 1000.0;
 			System.out.println("add-time:" + time);
+		} finally {
+			arr.release();
+		}
+	}
+
+	public void testBytesAdd10000wBArr() throws InterruptedException {
+		final int threadCount = 5;
+		final int dataCount = 100000000;
+		long st = System.currentTimeMillis();
+		final BytesArray arr = new BytesArray(1024 * 1024 * 100, swapPath);
+		final CountDownLatch cd = new CountDownLatch(threadCount);
+		try {
+			for (int i = 0; i < threadCount; i++) {
+				new Thread(new Runnable() {
+
+					@Override
+					public void run() {
+						int i = dataCount / threadCount;
+						byte[] data = new byte[80];
+						while (i-- > 0)
+							arr.add(data);
+						cd.countDown();
+					}
+				}).start();
+			}
+			cd.await();
+			double time = (System.currentTimeMillis() - st) / 1000.0;
+			System.out.println("add-time--:" + time);
+			arr.foreach(new CallBack() {
+
+				@Override
+				public void onData(byte[] data) {
+					System.out.println(data.length);
+				}
+			});
 		} finally {
 			arr.release();
 		}
@@ -60,8 +97,35 @@ public class MemMapTest extends TestCase {
 		}
 	}
 
-	public void testBytesAdd1billion() throws InterruptedException {
+	public static void main(String[] args) throws InterruptedException {
 		final int dataCount = 100000000;
+		long st = System.currentTimeMillis();
+		final MemMapBytesArray arr = new MemMapBytesArray(swapPath);
+		final CountDownLatch cd = new CountDownLatch(5);
+		try {
+			for (int i = 0; i < 5; i++) {
+				new Thread(new Runnable() {
+
+					@Override
+					public void run() {
+						byte[] data = new byte[50];
+						int i = dataCount / 5;
+						while (i-- > 0)
+							arr.add(data);
+						cd.countDown();
+					}
+				}).start();
+			}
+			cd.await();
+			double time = (System.currentTimeMillis() - st) / 1000.0;
+			System.out.println("add-time:" + time);
+		} finally {
+			arr.release();
+		}
+	}
+
+	public static void testBytesAdd5000W() throws InterruptedException {
+		final int dataCount = 50000000;
 		long st = System.currentTimeMillis();
 		final MemMapBytesArray arr = new MemMapBytesArray(swapPath);
 		final CountDownLatch cd = new CountDownLatch(5);
@@ -135,7 +199,7 @@ public class MemMapTest extends TestCase {
 		long st = System.currentTimeMillis();
 		final MemMapBytesArray arr = new MemMapBytesArray(swapPath);
 		try {
-			DataGenertor.read(new CallBack() {
+			DataGenertor.read(new ReadCallBack() {
 
 				// @Override
 				public void onRead(DBData dat) {

@@ -12,7 +12,7 @@ import java.util.Set;
 
 public class DataGenertor {
 
-    public static void read(CallBack cb, int dataCount) {
+    public static void read(ReadCallBack cb, int dataCount) {
         try {
             FileReader in = new FileReader("d:/" + dataCount + "-unsortdata.txt");
             BufferedReader bis = new BufferedReader(in);
@@ -27,7 +27,7 @@ public class DataGenertor {
         }
     }
 
-    public static interface CallBack {
+    public static interface ReadCallBack {
         void onRead(DBData dt);
     }
 
