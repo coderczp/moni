@@ -36,7 +36,7 @@ public class MemMapTest extends TestCase {
 
 	public void testBytesAdd10000wBArr() throws InterruptedException {
 		final int threadCount = 5;
-		final int dataCount = 100000000;
+		final int dataCount = 150000000;
 		long st = System.currentTimeMillis();
 		final BytesArray arr = new BytesArray(1024 * 1024 * 100, swapPath);
 		final CountDownLatch cd = new CountDownLatch(threadCount);
@@ -61,9 +61,26 @@ public class MemMapTest extends TestCase {
 
 				@Override
 				public void onData(byte[] data) {
-					System.out.println(data.length);
+					assertEquals(80, data.length);
 				}
 			});
+		} finally {
+			arr.release();
+		}
+	}
+
+	public void testMemMapBytesItor() {
+		final int dataCount = 10000;
+		final MemMapBytesItor arr = new MemMapBytesItor(swapPath);
+		try {
+			for (int i = 0; i < dataCount; i++) {
+				arr.add(String.valueOf(i).getBytes());
+			}
+			int i = 0;
+			for (byte[] bs : arr) {
+				String string = new String(bs);
+				assertEquals(String.valueOf(i++), string);
+			}
 		} finally {
 			arr.release();
 		}
@@ -92,6 +109,9 @@ public class MemMapTest extends TestCase {
 			cd.await();
 			double time = (System.currentTimeMillis() - st) / 1000.0;
 			System.out.println("add-time:" + time);
+			for (byte[] bs : arr) {
+				assertEquals(100, bs.length);
+			}
 		} finally {
 			arr.release();
 		}

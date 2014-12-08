@@ -11,11 +11,11 @@ import org.virtualdb.mpp.BytesArray.CallBack;
  * @author czp
  *
  */
-public class MemArray {
+public class HeapMemArray {
 
 	private ByteBuffer buf;
 
-	public MemArray(int memorySize) {
+	public HeapMemArray(int memorySize) {
 		this.buf = ByteBuffer.allocateDirect(memorySize);
 	}
 

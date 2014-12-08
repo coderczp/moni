@@ -4,14 +4,14 @@ public class BytesArray {
 
 	private long size;
 	private long dataBytes;
-	private MemArray memArray;
+	private HeapMemArray memArray;
 	private MemMapBytesItor mapBytesItor;
 	private FileBytesArray fileBytesArray;
 
 	private static final long MAX_BYTES = 1024 * 1024 * 1024 * 20l;
 
 	public BytesArray(int memorySize, String swapDir) {
-		memArray = new MemArray(memorySize);
+		memArray = new HeapMemArray(memorySize);
 		mapBytesItor = new MemMapBytesItor(swapDir);
 		fileBytesArray = new FileBytesArray(swapDir);
 	}

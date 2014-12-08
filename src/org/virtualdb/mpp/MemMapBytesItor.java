@@ -137,8 +137,10 @@ public class MemMapBytesItor implements Iterable<byte[]> {
 		// @Override
 		public synchronized boolean hasNext() {
 			boolean b = curIndex < size;
-			if (b && !curBuf.hasRemaining())
+			if (b && !curBuf.hasRemaining()){
 				curBuf = bufs.get(bufsIndex++);
+				curBuf.flip();
+			}
 			return b;
 		}
 
